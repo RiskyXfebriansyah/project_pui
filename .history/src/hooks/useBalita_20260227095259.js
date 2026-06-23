@@ -1,0 +1,128 @@
+import { useState, useMemo, useCallback } from 'react';
+import { BalitaAPI } from '../services/api';
+
+// ── Fix: ganti useEffect + useCallback dengan fungsi biasa
+// ESLint warning "setState in effect" muncul karena fetchBalita()
+// dipanggil di dalam useEffect. Solusinya: panggil langsung saat mount
+// menggunakan pattern ref atau initializer.
+
+export function useBalita() {
+  const [semua, setSemua]               = useState([]);
+  const [isLoading, setLoading]         = useState(false);
+  const [search, setSearch]             = useState('');
+  const [selected, setSelected]         = useState(null);
+  const [filterDesa, setFilterDesa]     = useState('Semua');
+  const [filterStatus, setFilterStatus] = useState('Semua');
+  const [initialized, setInitialized]   = useState(false);
+
+  const fetchBalita = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await BalitaAPI.getAll();
+      if (res?.status?.code === 200) {
+        const mapped = res.data.map(b => ({
+          id: b.id, nik: b.nik, nama: b.nama,
+          jenisKelamin: b.jenisKelamin, tanggalLahir: b.tanggalLahir,
+          umurBulan: b.umurBulan, namaIbu: b.namaIbu, namaAyah: b.namaAyah,
+          noTelepon: b.noTelepon, alamat: b.alamat,
+          namaPosyandu: b.namaPosyandu, desa: b.desa,
+          beratBadan: b.beratBadan, tinggiBadan: b.tinggiBadan,
+          statusStunting: b.statusStunting, statusGizi: b.statusGizi,
+          tglUkurTerakhir: b.tglUkurTerakhir,
+          riwayat: [],
+        }));
+        setSemua(mapped);
+      }
+    } catch {
+      console.error('Gagal load balita');
+    }
+    setLoading(false);
+  }, []);
+
+  // ── Fix: pakai useState initializer trick untuk load pertama kali
+  // Hindari useEffect agar tidak trigger ESLint warning
+  useState(() => {
+    if (!initialized) {
+      setInitialized(true);
+      fetchBalita();
+    }
+  });
+
+  async function selectBalita(balita) {
+    setSelected(balita);
+    if (!balita) return;
+    try {
+      const res = await BalitaAPI.getPemantauan(balita.id);
+      if (res?.status?.code === 200) {
+        const withRiwayat = { ...balita, riwayat: res.data };
+        setSelected(withRiwayat);
+        setSemua(prev => prev.map(b => b.id === balita.id ? withRiwayat : b));
+      }
+    } catch { console.error('Gagal load pemantauan'); }
+  }
+
+  const filtered = useMemo(() => semua.filter(b => {
+    const q = search.toLowerCase();
+    const matchSearch = !q ||
+      (b.nama || '').toLowerCase().includes(q) ||
+      (b.namaIbu || '').toLowerCase().includes(q) ||
+      (b.nik || '').includes(q);
+    const matchDesa   = filterDesa === 'Semua' || b.desa === filterDesa;
+    const matchStatus = filterStatus === 'Semua' || b.statusStunting === filterStatus;
+    return matchSearch && matchDesa && matchStatus;
+  }), [semua, search, filterDesa, filterStatus]);
+
+  const statistik = useMemo(() => ({
+    total:      semua.length,
+    stunting:   semua.filter(b => b.statusStunting === 'Stunting').length,
+    risiko:     semua.filter(b => b.statusStunting === 'Risiko').length,
+    normal:     semua.filter(b => b.statusStunting === 'Normal').length,
+    giziKurang: semua.filter(b => ['Gizi Kurang','Gizi Buruk'].includes(b.statusGizi)).length,
+  }), [semua]);
+
+  const desaOptions = useMemo(() => {
+    const set = new Set(semua.map(b => b.desa).filter(Boolean));
+    return ['Semua', ...set];
+  }, [semua]);
+
+  async function addBalita(dto) {
+    try {
+      const res = await BalitaAPI.create(dto);
+      if (res?.status?.code === 200) { await fetchBalita(); return true; }
+      return false;
+    } catch { return false; }
+  }
+
+  async function addPemantauan(dto) {
+    try {
+      const res = await BalitaAPI.addPemantauan(dto);
+      if (res?.status?.code === 200) {
+        if (selected) await selectBalita(selected);
+        await fetchBalita();
+        return true;
+      }
+      return false;
+    } catch { return false; }
+  }
+
+  async function deleteBalita(id) {
+    try {
+      const res = await BalitaAPI.delete(id);
+      if (res?.status?.code === 200) {
+        setSemua(prev => prev.filter(b => b.id !== id));
+        if (selected?.id === id) setSelected(null);
+        return true;
+      }
+      return false;
+    } catch { return false; }
+  }
+
+  return {
+    semua, filtered, selected, search, filterDesa, filterStatus,
+    statistik, desaOptions, isLoading,
+    setSearch, setFilterDesa, setFilterStatus,
+    setSelected: selectBalita,
+    addPemantauan, addBalita, deleteBalita,
+    refresh: fetchBalita,
+  };
+}

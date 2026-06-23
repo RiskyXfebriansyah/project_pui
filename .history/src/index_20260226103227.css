@@ -1,0 +1,33 @@
+/* RESET DASAR */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* ROOT FULL HEIGHT */
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+}
+
+/* BODY NORMAL (TIDAK CENTER) */
+body {
+  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  background-color: #f5f6fa;
+  line-height: 1.5;
+}
+
+/* LINK */
+a {
+  text-decoration: none;
+  color: inherit;
+}
+
+/* BUTTON OPTIONAL CLEAN STYLE */
+button {
+  cursor: pointer;
+  font-family: inherit;
+}
