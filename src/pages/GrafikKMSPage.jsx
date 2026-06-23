@@ -247,6 +247,12 @@ const C = {
   dot:  '#1D4ED8',                            // scatter plot
 };
 
+const BALITA_COLORS = [
+  '#1D4ED8', '#DC2626', '#16A34A', '#D97706',
+  '#7C3AED', '#0891B2', '#BE185D', '#65A30D',
+  '#0D9488', '#EA580C', '#4338CA', '#C026D3',
+];
+
 // ── Custom Tooltip ─────────────────────────────────────────────
 function KMSTooltip({ active, payload, label, unit }) {
   if (!active || !payload?.length) return null;
@@ -332,20 +338,40 @@ function buildChartData(whoData, riwayat, field, tanggalLahir) {
 }
 
 // ── Single Chart Component ─────────────────────────────────────
-function KMSChart({ title, subtitle, whoData, riwayat, field, unit, yDomain, tanggalLahir }) {
-  const { curveData, scatterData } = buildChartData(whoData, riwayat, field, tanggalLahir);
-  const lastPoint = scatterData[scatterData.length - 1];
+function KMSChart({ title, subtitle, whoData, whoData2, riwayat, field, unit, yDomain, tanggalLahir, multiSeries, selectedId, onSelectBalita }) {
+  const primaryIsMulti = !riwayat && multiSeries?.length > 0;
+  const { curveData } = buildChartData(whoData, riwayat || [], field, tanggalLahir);
+  const curveData2 = whoData2 ? whoData2.map(d => ({ bulan: d.b, n3: d.n3, n2: d.n2, m: d.m, p2: d.p2, p3: d.p3 })) : null;
+
+  // Single balita mode
+  const { scatterData } = !primaryIsMulti
+    ? buildChartData(whoData, riwayat, field, tanggalLahir)
+    : { scatterData: [] };
+
+  const lastPoint = primaryIsMulti ? null : scatterData[scatterData.length - 1];
   const lastWho = lastPoint ? interpolateWHO(whoData, lastPoint.bulan) : null;
   const status = lastPoint && lastWho
     ? getStatusFromWHO(lastPoint.y, lastPoint.bulan, whoData)
     : null;
+
+  const hasAnyData = primaryIsMulti
+    ? multiSeries.some(s => s.riwayat.length > 0)
+    : scatterData.length > 0;
+
+  // Build multi-series chart data
+  const multiChartData = primaryIsMulti
+    ? multiSeries.map(s => ({
+        ...s,
+        chartData: buildChartData(whoData, s.riwayat, field, s.tanggalLahir).scatterData,
+      }))
+    : [];
 
   return (
     <div className="chart-card anim">
       <div className="chart-title">{title}</div>
       <div className="chart-sub">{subtitle}</div>
 
-      {scatterData.length === 0 && (
+      {!hasAnyData && (
         <div className="no-data-box">
           <div style={{ fontSize: 28, marginBottom: 8 }}>📊</div>
           <div style={{ fontSize: 13, color: '#94A3B8', fontWeight: 500 }}>Belum ada data pengukuran</div>
@@ -353,7 +379,7 @@ function KMSChart({ title, subtitle, whoData, riwayat, field, unit, yDomain, tan
         </div>
       )}
 
-      {scatterData.length > 0 && status && (
+      {!primaryIsMulti && scatterData.length > 0 && status && (
         <div style={{
           display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 12,
           background: `${status.color}18`, border: `1.5px solid ${status.color}40`,
@@ -383,13 +409,13 @@ function KMSChart({ title, subtitle, whoData, riwayat, field, unit, yDomain, tan
           />
           <Tooltip content={<KMSTooltip unit={unit} />} />
 
-          {/* Kurva WHO */}
+          {/* Kurva WHO — gender aktif */}
           {[
-            { key: 'n3', label: '-3 SD', color: C.n3.stroke, dash: C.n3.dash },
-            { key: 'n2', label: '-2 SD', color: C.n2.stroke, dash: C.n2.dash },
-            { key: 'm',  label: 'Median', color: C.m.stroke,  dash: '' },
-            { key: 'p2', label: '+2 SD', color: C.p2.stroke, dash: C.p2.dash },
-            { key: 'p3', label: '+3 SD', color: C.p3.stroke, dash: C.p3.dash },
+            { key: 'n3', color: C.n3.stroke, dash: C.n3.dash },
+            { key: 'n2', color: C.n2.stroke, dash: C.n2.dash },
+            { key: 'm',  color: C.m.stroke,  dash: '' },
+            { key: 'p2', color: C.p2.stroke, dash: C.p2.dash },
+            { key: 'p3', color: C.p3.stroke, dash: C.p3.dash },
           ].map(({ key, color, dash }) => (
             <Line
               key={key}
@@ -404,28 +430,73 @@ function KMSChart({ title, subtitle, whoData, riwayat, field, unit, yDomain, tan
               legendType="none"
             />
           ))}
+          {/* Kurva WHO — gender kedua (multi-series) */}
+          {primaryIsMulti && whoData2 && curveData2 && [
+            { key: 'n3', color: C.n3.stroke },
+            { key: 'n2', color: C.n2.stroke },
+            { key: 'm',  color: C.m.stroke },
+            { key: 'p2', color: C.p2.stroke },
+            { key: 'p3', color: C.p3.stroke },
+          ].map(({ key, color }) => (
+            <Line
+              key={`${key}_2`}
+              data={curveData2}
+              dataKey={key}
+              type="monotone"
+              stroke={color}
+              strokeWidth={1}
+              strokeOpacity={0.4}
+              strokeDasharray="2 4"
+              dot={false}
+              activeDot={false}
+              legendType="none"
+            />
+          ))}
 
-          {/* Plot data balita */}
-          <Scatter
-            data={scatterData}
-            dataKey="y"
-            fill={C.dot}
-            stroke="#fff"
-            strokeWidth={1.5}
-            r={5}
-            name="Data Balita"
-          />
+          {/* Multi-balita: render each balita as a line */}
+          {primaryIsMulti && multiChartData.map(s => {
+            const isActive = s.id === selectedId;
+            return (
+              <Line
+                key={s.id}
+                data={s.chartData}
+                dataKey="y"
+                type="monotone"
+                stroke={s.warna}
+                strokeWidth={isActive ? 2.5 : 1.2}
+                strokeOpacity={isActive ? 1 : 0.5}
+                dot={isActive}
+                activeDot={{ r: isActive ? 7 : 4 }}
+                name={s.nama}
+                onClick={() => onSelectBalita?.(s.id)}
+                style={{ cursor: 'pointer' }}
+              />
+            );
+          })}
 
-          {/* Garis hubung antar titik balita */}
-          <Line
-            data={scatterData}
-            dataKey="y"
-            type="monotone"
-            stroke={C.dot}
-            strokeWidth={1.5}
-            dot={{ r: 5, fill: C.dot, stroke: '#fff', strokeWidth: 1.5 }}
-            activeDot={{ r: 7 }}
-          />
+          {/* Single balita mode */}
+          {!primaryIsMulti && (
+            <>
+              <Scatter
+                data={scatterData}
+                dataKey="y"
+                fill={C.dot}
+                stroke="#fff"
+                strokeWidth={1.5}
+                r={5}
+                name="Data Balita"
+              />
+              <Line
+                data={scatterData}
+                dataKey="y"
+                type="monotone"
+                stroke={C.dot}
+                strokeWidth={1.5}
+                dot={{ r: 5, fill: C.dot, stroke: '#fff', strokeWidth: 1.5 }}
+                activeDot={{ r: 7 }}
+              />
+            </>
+          )}
         </ComposedChart>
       </ResponsiveContainer>
 
@@ -435,7 +506,15 @@ function KMSChart({ title, subtitle, whoData, riwayat, field, unit, yDomain, tan
           { color: C.m.stroke, dash: false, label: 'Median (0 SD)' },
           { color: C.n2.stroke, dash: true,  label: '±2 SD' },
           { color: C.n3.stroke, dash: true,  label: '±3 SD' },
-          { color: C.dot, dash: false, dot: true, label: 'Data balita' },
+          ...(!primaryIsMulti
+            ? [{ color: C.dot, dash: false, dot: true, label: 'Data balita' }]
+            : multiSeries.map(s => ({
+                color: s.warna,
+                dash: false,
+                dot: true,
+                label: s.id === selectedId ? `▶ ${s.nama}` : s.nama,
+              }))
+          ),
         ].map(({ color, dash, dot, label }) => (
           <div key={label} className="legend-item">
             {dot
@@ -452,6 +531,7 @@ function KMSChart({ title, subtitle, whoData, riwayat, field, unit, yDomain, tan
       </div>
 
       {/* Status zones info */}
+      {!primaryIsMulti && (
       <div className="status-bar">
         <div className="status-bar-title">Zona Interpretasi</div>
         <div className="status-zones">
@@ -470,6 +550,7 @@ function KMSChart({ title, subtitle, whoData, riwayat, field, unit, yDomain, tan
           ))}
         </div>
       </div>
+      )}
     </div>
   );
 }
@@ -508,8 +589,17 @@ const tdStyle = { padding: '8px 10px', borderBottom: '1px solid #F9FAFB', fontSi
 export default function GrafikKMSPage({ balita, balitaList, onLoadRiwayat, onBack }) {
   injectKMSCSS();
   const [activeTab, setActiveTab] = useState('bbu');
-  const [selectedId, setSelectedId] = useState(balita?.id || null);
+  const [selectedId, setSelectedId] = useState(null);
+  const [showAll, setShowAll] = useState(true);
   const [search, setSearch] = useState('');
+
+  // Sync selectedId dari prop balita (dari luar)
+  useEffect(() => {
+    if (balita?.id) {
+      setSelectedId(balita.id);
+      setShowAll(false);
+    }
+  }, [balita?.id]);
 
   // Cari data balita dari balitaList berdasarkan selectedId
   const selectedFromList = useMemo(() => {
@@ -523,6 +613,20 @@ export default function GrafikKMSPage({ balita, balitaList, onLoadRiwayat, onBac
       onLoadRiwayat(selectedId);
     }
   }, [selectedId, selectedFromList, onLoadRiwayat]);
+
+  // Multi-series untuk tampilkan semua balita
+  const multiSeries = useMemo(() => {
+    if (!showAll || !balitaList?.length) return null;
+    return balitaList
+      .filter(b => b.riwayat?.length > 0)
+      .map((b, i) => ({
+        id: b.id,
+        nama: b.nama,
+        tanggalLahir: b.tanggalLahir,
+        riwayat: b.riwayat || [],
+        warna: BALITA_COLORS[i % BALITA_COLORS.length],
+      }));
+  }, [showAll, balitaList]);
 
   // Fallback data
   const data = selectedFromList || balita || {
@@ -549,6 +653,8 @@ export default function GrafikKMSPage({ balita, balitaList, onLoadRiwayat, onBac
       title: '⚖️ Berat Badan menurut Umur (BB/U)',
       subtitle: `Standar WHO • Anak ${data.jenisKelamin} • 0–60 bulan`,
       whoData: isFemale ? WHO_BBU_P : WHO_BBU_L,
+      whoData2: WHO_BBU_L,
+      whoData2F: WHO_BBU_P,
       field: 'bb',
       unit: 'kg',
       yDomain: [1, 32],
@@ -557,6 +663,8 @@ export default function GrafikKMSPage({ balita, balitaList, onLoadRiwayat, onBac
       title: '📏 Tinggi Badan menurut Umur (TB/U)',
       subtitle: `Standar WHO • Anak ${data.jenisKelamin} • 0–60 bulan`,
       whoData: isFemale ? WHO_TBU_P : WHO_TBU_L,
+      whoData2: WHO_TBU_L,
+      whoData2F: WHO_TBU_P,
       field: 'tb',
       unit: 'cm',
       yDomain: [40, 135],
@@ -565,6 +673,8 @@ export default function GrafikKMSPage({ balita, balitaList, onLoadRiwayat, onBac
       title: '🔵 Lingkar Kepala menurut Umur (LK/U)',
       subtitle: `Standar WHO • Anak ${data.jenisKelamin} • 0–60 bulan`,
       whoData: isFemale ? WHO_LKU_P : WHO_LKU_L,
+      whoData2: WHO_LKU_L,
+      whoData2F: WHO_LKU_P,
       field: 'lk',
       unit: 'cm',
       yDomain: [30, 58],
@@ -587,7 +697,18 @@ export default function GrafikKMSPage({ balita, balitaList, onLoadRiwayat, onBac
 
   function handleSelectBalita(b) {
     setSelectedId(b.id);
+    setShowAll(false);
     if (onLoadRiwayat) onLoadRiwayat(b.id);
+  }
+
+  function handleShowAll() {
+    setSelectedId(null);
+    setShowAll(true);
+  }
+
+  function handleSelectFromChart(id) {
+    const b = balitaList?.find(x => x.id === id);
+    if (b) handleSelectBalita(b);
   }
 
   return (
@@ -609,14 +730,30 @@ export default function GrafikKMSPage({ balita, balitaList, onLoadRiwayat, onBac
         )}
         <div className="kms-header-icon">📈</div>
         <div>
-          <div className="kms-title">Grafik KMS — {data.nama}</div>
+          <div className="kms-title">
+            {showAll ? 'Grafik KMS — Semua Balita' : `Grafik KMS — ${data.nama}`}
+          </div>
           <div className="kms-subtitle">
-            {isFemale ? '👧' : '👦'} {data.jenisKelamin} &nbsp;·&nbsp;
-            Lahir: {new Date(data.tanggalLahir).toLocaleDateString('id-ID', { day:'numeric', month:'long', year:'numeric' })} &nbsp;·&nbsp;
-            Umur saat ini: {formatUmur(umurBulan)}
+            {showAll
+              ? `${multiSeries?.length || 0} balita dengan data pemantauan`
+              : `${isFemale ? '👧' : '👦'} ${data.jenisKelamin} · Lahir: ${new Date(data.tanggalLahir).toLocaleDateString('id-ID', { day:'numeric', month:'long', year:'numeric' })} · Umur saat ini: ${formatUmur(umurBulan)}`
+            }
           </div>
         </div>
-        {lastRiwayat && (
+        {!showAll && (
+          <button
+            onClick={handleShowAll}
+            style={{
+              background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+              borderRadius: 10, padding: '6px 12px', color: 'rgba(255,255,255,0.7)',
+              cursor: 'pointer', fontSize: 12, fontFamily: 'DM Sans,sans-serif',
+              marginLeft: 8,
+            }}
+          >
+            📊 Tampilkan Semua
+          </button>
+        )}
+        {!showAll && lastRiwayat && (
           <div className="kms-info">
             <div className="kms-info-item">
               <div className="kms-info-val">{lastRiwayat.bb || lastRiwayat.beratBadan} <span style={{ fontSize: 11, color: 'rgba(245,158,11,0.6)' }}>kg</span></div>
@@ -651,26 +788,35 @@ export default function GrafikKMSPage({ balita, balitaList, onLoadRiwayat, onBac
 
       {/* Chart */}
       <KMSChart
-        key={activeTab + (data.id || 'demo')}
+        key={activeTab + (showAll ? 'all' : (data.id || 'demo'))}
         title={active.title}
-        subtitle={active.subtitle}
+        subtitle={showAll
+          ? `Semua balita (👦 Laki-laki + 👧 Perempuan) · 0–60 bulan`
+          : active.subtitle
+        }
         whoData={active.whoData}
-        riwayat={data.riwayat}
+        whoData2={showAll ? (isFemale ? active.whoData2 : active.whoData2F) : null}
+        riwayat={showAll ? null : data.riwayat}
         field={active.field}
         unit={active.unit}
         yDomain={active.yDomain}
         tanggalLahir={data.tanggalLahir}
+        multiSeries={showAll ? multiSeries : null}
+        selectedId={selectedId}
+        onSelectBalita={handleSelectFromChart}
       />
 
       {/* Jumlah pengukuran */}
-      <div style={{
-        textAlign: 'center', fontSize: 11, color: '#CBD5E1', padding: '4px 0 8px',
-        fontStyle: 'italic',
-      }}>
-        {data.riwayat.length} kali pengukuran tercatat • Data terakhir: {lastRiwayat
-          ? new Date(lastRiwayat.tanggal).toLocaleDateString('id-ID', { day:'numeric', month:'long', year:'numeric' })
-          : '–'}
-      </div>
+      {!showAll && (
+        <div style={{
+          textAlign: 'center', fontSize: 11, color: '#CBD5E1', padding: '4px 0 8px',
+          fontStyle: 'italic',
+        }}>
+          {data.riwayat.length} kali pengukuran tercatat • Data terakhir: {lastRiwayat
+            ? new Date(lastRiwayat.tanggal).toLocaleDateString('id-ID', { day:'numeric', month:'long', year:'numeric' })
+            : '–'}
+        </div>
+      )}
 
       {/* ══ Tabel Daftar Balita ═════════════════════════════════ */}
       {balitaList?.length > 0 && (
