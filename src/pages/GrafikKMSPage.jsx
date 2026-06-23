@@ -4,7 +4,7 @@
 //  riwayat item: { tanggal, bb, tb, lk, umurBulan }
 // ============================================================
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   ComposedChart, Line, Scatter,
   XAxis, YAxis, CartesianGrid, Tooltip,
@@ -496,12 +496,36 @@ function formatUmur(bulan) {
 }
 
 // ── Main Export ────────────────────────────────────────────────
-export default function GrafikKMSPage({ balita, onBack }) {
+const STATUS_COLORS = {
+  Stunting: '#DC2626',
+  Risiko: '#D97706',
+  Normal: '#16A34A',
+};
+
+const thStyle = { padding: '8px 10px', fontSize: 10, fontWeight: 700, color: '#9E9E9E', background: '#F9FAFB', borderBottom: '1px solid #F0F0F0', textAlign: 'left', whiteSpace: 'nowrap' };
+const tdStyle = { padding: '8px 10px', borderBottom: '1px solid #F9FAFB', fontSize: 12, verticalAlign: 'middle' };
+
+export default function GrafikKMSPage({ balita, balitaList, onLoadRiwayat, onBack }) {
   injectKMSCSS();
   const [activeTab, setActiveTab] = useState('bbu');
+  const [selectedId, setSelectedId] = useState(balita?.id || null);
+  const [search, setSearch] = useState('');
 
-  // Fallback jika tidak ada props balita
-  const data = balita || {
+  // Cari data balita dari balitaList berdasarkan selectedId
+  const selectedFromList = useMemo(() => {
+    if (!balitaList?.length || !selectedId) return null;
+    return balitaList.find(b => b.id === selectedId) || null;
+  }, [balitaList, selectedId]);
+
+  // Load riwayat saat balita dipilih
+  useEffect(() => {
+    if (selectedId && selectedFromList && !selectedFromList.riwayat?.length && onLoadRiwayat) {
+      onLoadRiwayat(selectedId);
+    }
+  }, [selectedId, selectedFromList, onLoadRiwayat]);
+
+  // Fallback data
+  const data = selectedFromList || balita || {
     nama: 'Anak Demo',
     tanggalLahir: '2022-05-01',
     jenisKelamin: 'Perempuan',
@@ -549,6 +573,23 @@ export default function GrafikKMSPage({ balita, onBack }) {
 
   const active = charts[activeTab];
 
+  // Filter balitaList untuk tabel
+  const filteredList = useMemo(() => {
+    if (!balitaList?.length) return [];
+    const q = search.toLowerCase();
+    return balitaList.filter(b =>
+      !q ||
+      (b.nama || '').toLowerCase().includes(q) ||
+      (b.namaIbu || '').toLowerCase().includes(q) ||
+      (b.nik || '').includes(q)
+    );
+  }, [balitaList, search]);
+
+  function handleSelectBalita(b) {
+    setSelectedId(b.id);
+    if (onLoadRiwayat) onLoadRiwayat(b.id);
+  }
+
   return (
     <div className="kms-root">
       {/* Header */}
@@ -578,16 +619,16 @@ export default function GrafikKMSPage({ balita, onBack }) {
         {lastRiwayat && (
           <div className="kms-info">
             <div className="kms-info-item">
-              <div className="kms-info-val">{lastRiwayat.bb} <span style={{ fontSize: 11, color: 'rgba(245,158,11,0.6)' }}>kg</span></div>
+              <div className="kms-info-val">{lastRiwayat.bb || lastRiwayat.beratBadan} <span style={{ fontSize: 11, color: 'rgba(245,158,11,0.6)' }}>kg</span></div>
               <div className="kms-info-lbl">BB Terakhir</div>
             </div>
             <div className="kms-info-item">
-              <div className="kms-info-val">{lastRiwayat.tb} <span style={{ fontSize: 11, color: 'rgba(245,158,11,0.6)' }}>cm</span></div>
+              <div className="kms-info-val">{lastRiwayat.tb || lastRiwayat.tinggiBadan} <span style={{ fontSize: 11, color: 'rgba(245,158,11,0.6)' }}>cm</span></div>
               <div className="kms-info-lbl">TB Terakhir</div>
             </div>
-            {lastRiwayat.lk && (
+            {(lastRiwayat.lk || lastRiwayat.lingkarKepala) && (
               <div className="kms-info-item">
-                <div className="kms-info-val">{lastRiwayat.lk} <span style={{ fontSize: 11, color: 'rgba(245,158,11,0.6)' }}>cm</span></div>
+                <div className="kms-info-val">{lastRiwayat.lk || lastRiwayat.lingkarKepala} <span style={{ fontSize: 11, color: 'rgba(245,158,11,0.6)' }}>cm</span></div>
                 <div className="kms-info-lbl">LK Terakhir</div>
               </div>
             )}
@@ -610,7 +651,7 @@ export default function GrafikKMSPage({ balita, onBack }) {
 
       {/* Chart */}
       <KMSChart
-        key={activeTab + data.jenisKelamin}
+        key={activeTab + (data.id || 'demo')}
         title={active.title}
         subtitle={active.subtitle}
         whoData={active.whoData}
@@ -630,6 +671,99 @@ export default function GrafikKMSPage({ balita, onBack }) {
           ? new Date(lastRiwayat.tanggal).toLocaleDateString('id-ID', { day:'numeric', month:'long', year:'numeric' })
           : '–'}
       </div>
+
+      {/* ══ Tabel Daftar Balita ═════════════════════════════════ */}
+      {balitaList?.length > 0 && (
+        <div className="chart-card anim" style={{ marginTop: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+            <div>
+              <div className="chart-title">📋 Daftar Balita Terdaftar</div>
+              <div className="chart-sub">Klik baris untuk melihat grafik KMS balita</div>
+            </div>
+            <input
+              placeholder="🔍 Cari nama / NIK / ibu..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={{
+                padding: '7px 12px', borderRadius: 8, border: '1.5px solid #E5E7EB',
+                fontSize: 12, fontFamily: 'inherit', outline: 'none',
+                width: 200, background: '#F9FAFB',
+              }}
+            />
+          </div>
+
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  <th style={thStyle}>Nama</th>
+                  <th style={thStyle}>NIK</th>
+                  <th style={thStyle}>JK</th>
+                  <th style={thStyle}>Umur</th>
+                  <th style={thStyle}>Ibu</th>
+                  <th style={thStyle}>BB</th>
+                  <th style={thStyle}>TB</th>
+                  <th style={thStyle}>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredList.map(b => {
+                  const last = b.riwayat?.[b.riwayat.length - 1];
+                  const bb = last ? (last.bb || last.beratBadan) : (b.beratBadan || '—');
+                  const tb = last ? (last.tb || last.tinggiBadan) : (b.tinggiBadan || '—');
+                  const umur = b.umurBulan ?? hitungUmurBulan(b.tanggalLahir);
+                  const status = b.statusStunting || '—';
+                  const sc = STATUS_COLORS[status] || '#9E9E9E';
+                  const isActive = b.id === selectedId;
+                  return (
+                    <tr
+                      key={b.id}
+                      onClick={() => handleSelectBalita(b)}
+                      style={{
+                        cursor: 'pointer', transition: 'background 0.15s',
+                        background: isActive ? '#EFF6FF' : undefined,
+                      }}
+                      onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = '#F9FAFB'; }}
+                      onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = ''; }}
+                    >
+                      <td style={{ ...tdStyle, fontWeight: 600, color: isActive ? '#1D4ED8' : '#0F172A' }}>
+                        {isActive ? '▶ ' : ''}{b.nama}
+                      </td>
+                      <td style={tdStyle}>{b.nik || '—'}</td>
+                      <td style={tdStyle}>{b.jenisKelamin === 'Laki-laki' ? '👦' : '👧'}</td>
+                      <td style={tdStyle}>{formatUmur(umur)}</td>
+                      <td style={tdStyle}>{b.namaIbu || '—'}</td>
+                      <td style={tdStyle}>{bb !== '—' ? `${bb} kg` : '—'}</td>
+                      <td style={tdStyle}>{tb !== '—' ? `${tb} cm` : '—'}</td>
+                      <td style={tdStyle}>
+                        <span style={{
+                          display: 'inline-block', padding: '2px 8px', borderRadius: 6,
+                          fontSize: 10, fontWeight: 700, color: '#fff', background: sc,
+                        }}>
+                          {status}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {filteredList.length === 0 && (
+                  <tr>
+                    <td colSpan={8} style={{ ...tdStyle, textAlign: 'center', color: '#94A3B8', padding: 24 }}>
+                      Tidak ada balita ditemukan
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {balitaList.length > 0 && (
+            <div style={{ textAlign: 'right', fontSize: 11, color: '#CBD5E1', marginTop: 8 }}>
+              {filteredList.length} dari {balitaList.length} balita
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
