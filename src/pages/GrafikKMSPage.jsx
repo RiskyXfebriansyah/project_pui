@@ -298,12 +298,30 @@ function getStatusFromWHO(value, bulan, dataset) {
 }
 
 // ── Build chart data (kurva WHO + scatter balita) ──────────────
-function buildChartData(whoData, riwayat, field) {
-  // Kurva WHO: semua titik
+function hitungUmurBulanSaat(tanggalLahir, tanggalUkur) {
+  if (!tanggalLahir || !tanggalUkur) return 0;
+  const lahir = new Date(tanggalLahir);
+  const ukur = new Date(tanggalUkur);
+  return (ukur.getFullYear() - lahir.getFullYear()) * 12 + (ukur.getMonth() - lahir.getMonth());
+}
+
+function normalisasiRiwayat(riwayat, tanggalLahir) {
+  return riwayat.map(r => ({
+    ...r,
+    bb: parseFloat(r.bb ?? r.beratBadan) ?? null,
+    tb: parseFloat(r.tb ?? r.tinggiBadan) ?? null,
+    lk: parseFloat(r.lk ?? r.lingkarKepala) ?? null,
+    umurBulan: r.umurBulan ?? hitungUmurBulanSaat(tanggalLahir, r.tanggal || r.tglUkur),
+  }));
+}
+
+// ── Build chart data (kurva WHO + scatter balita) ──────────────
+function buildChartData(whoData, riwayat, field, tanggalLahir) {
+  const normalized = normalisasiRiwayat(riwayat, tanggalLahir);
   const curveData = whoData.map(d => ({ bulan: d.b, n3: d.n3, n2: d.n2, m: d.m, p2: d.p2, p3: d.p3 }));
 
   // Scatter: data balita per bulan
-  const scatterData = riwayat
+  const scatterData = normalized
     .filter(r => r[field] != null && r[field] > 0)
     .map(r => ({
       bulan: r.umurBulan,
@@ -314,8 +332,8 @@ function buildChartData(whoData, riwayat, field) {
 }
 
 // ── Single Chart Component ─────────────────────────────────────
-function KMSChart({ title, subtitle, whoData, riwayat, field, unit, yDomain }) {
-  const { curveData, scatterData } = buildChartData(whoData, riwayat, field);
+function KMSChart({ title, subtitle, whoData, riwayat, field, unit, yDomain, tanggalLahir }) {
+  const { curveData, scatterData } = buildChartData(whoData, riwayat, field, tanggalLahir);
   const lastPoint = scatterData[scatterData.length - 1];
   const lastWho = lastPoint ? interpolateWHO(whoData, lastPoint.bulan) : null;
   const status = lastPoint && lastWho
@@ -600,6 +618,7 @@ export default function GrafikKMSPage({ balita, onBack }) {
         field={active.field}
         unit={active.unit}
         yDomain={active.yDomain}
+        tanggalLahir={data.tanggalLahir}
       />
 
       {/* Jumlah pengukuran */}
