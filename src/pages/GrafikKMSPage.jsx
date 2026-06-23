@@ -281,11 +281,11 @@ function interpolateWHO(data, bulan) {
     if (bulan >= data[i].b && bulan <= data[i + 1].b) {
       const t = (bulan - data[i].b) / (data[i + 1].b - data[i].b);
       return {
-        n3: +(data[i].n3 + t * (data[i + 1].n3 - data[i].n3)).toFixed(1),
-        n2: +(data[i].n2 + t * (data[i + 1].n2 - data[i].n3)).toFixed(1),
-        m:  +(data[i].m  + t * (data[i + 1].m  - data[i].m)).toFixed(1),
-        p2: +(data[i].p2 + t * (data[i + 1].p2 - data[i].p2)).toFixed(1),
-        p3: +(data[i].p3 + t * (data[i + 1].p3 - data[i].p3)).toFixed(1),
+        n3: +(data[i].n3 + (data[i + 1].n3 - data[i].n3) * t).toFixed(1),
+        n2: +(data[i].n2 + (data[i + 1].n2 - data[i].n2) * t).toFixed(1),
+        m:  +(data[i].m  + (data[i + 1].m  - data[i].m)  * t).toFixed(1),
+        p2: +(data[i].p2 + (data[i + 1].p2 - data[i].p2) * t).toFixed(1),
+        p3: +(data[i].p3 + (data[i + 1].p3 - data[i].p3) * t).toFixed(1),
       };
     }
   }
@@ -338,6 +338,23 @@ function buildChartData(whoData, riwayat, field, tanggalLahir) {
 }
 
 // ── Single Chart Component ─────────────────────────────────────
+function MultiTooltip({ active, payload, unit, multiSeries, selectedId }) {
+  if (!active || !payload?.length) return null;
+  const dataPoint = payload.find(p => p.dataKey === 'y');
+  if (!dataPoint) return null;
+  const nama = dataPoint.name || 'Balita';
+  const isMulti = multiSeries?.length > 0;
+  return (
+    <div className="ctooltip-kms">
+      {isMulti && <div style={{ fontWeight: 700, color: dataPoint.stroke, marginBottom: 4 }}>{nama}</div>}
+      <div style={{ fontWeight: 600, marginBottom: 2, color: '#0F172A' }}>Umur {dataPoint.payload.bulan} bulan</div>
+      <div style={{ color: '#1D4ED8', fontWeight: 700 }}>
+        📍 <strong>{dataPoint.value} {unit}</strong>
+      </div>
+    </div>
+  );
+}
+
 function KMSChart({ title, subtitle, whoData, whoData2, riwayat, field, unit, yDomain, tanggalLahir, multiSeries, selectedId, onSelectBalita }) {
   const primaryIsMulti = !riwayat && multiSeries?.length > 0;
   const { curveData } = buildChartData(whoData, riwayat || [], field, tanggalLahir);
@@ -355,7 +372,7 @@ function KMSChart({ title, subtitle, whoData, whoData2, riwayat, field, unit, yD
     : null;
 
   const hasAnyData = primaryIsMulti
-    ? multiSeries.some(s => s.riwayat.length > 0)
+    ? multiSeries.some(s => s.riwayat?.length > 0)
     : scatterData.length > 0;
 
   // Build multi-series chart data
@@ -390,7 +407,7 @@ function KMSChart({ title, subtitle, whoData, whoData2, riwayat, field, unit, yD
         </div>
       )}
 
-      <ResponsiveContainer width="100%" height={260}>
+      <ResponsiveContainer width="100%" height={300}>
         <ComposedChart margin={{ top: 8, right: 12, bottom: 8, left: -10 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
           <XAxis
@@ -407,53 +424,56 @@ function KMSChart({ title, subtitle, whoData, whoData2, riwayat, field, unit, yD
             tick={{ fontSize: 10, fill: '#94A3B8' }}
             axisLine={false} tickLine={false}
           />
-          <Tooltip content={<KMSTooltip unit={unit} />} />
+          <Tooltip
+            content={<MultiTooltip unit={unit} multiSeries={primaryIsMulti ? multiSeries : null} selectedId={selectedId} />}
+          />
 
-          {/* Kurva WHO — gender aktif */}
-          {[
-            { key: 'n3', color: C.n3.stroke, dash: C.n3.dash },
-            { key: 'n2', color: C.n2.stroke, dash: C.n2.dash },
-            { key: 'm',  color: C.m.stroke,  dash: '' },
-            { key: 'p2', color: C.p2.stroke, dash: C.p2.dash },
-            { key: 'p3', color: C.p3.stroke, dash: C.p3.dash },
-          ].map(({ key, color, dash }) => (
-            <Line
-              key={key}
-              data={curveData}
-              dataKey={key}
-              type="monotone"
-              stroke={color}
-              strokeWidth={key === 'm' ? 2 : 1.5}
-              strokeDasharray={dash}
-              dot={false}
-              activeDot={false}
-              legendType="none"
-            />
-          ))}
-          {/* Kurva WHO — gender kedua (multi-series) */}
-          {primaryIsMulti && whoData2 && curveData2 && [
-            { key: 'n3', color: C.n3.stroke },
-            { key: 'n2', color: C.n2.stroke },
-            { key: 'm',  color: C.m.stroke },
-            { key: 'p2', color: C.p2.stroke },
-            { key: 'p3', color: C.p3.stroke },
-          ].map(({ key, color }) => (
-            <Line
-              key={`${key}_2`}
-              data={curveData2}
-              dataKey={key}
-              type="monotone"
-              stroke={color}
-              strokeWidth={1}
-              strokeOpacity={0.4}
-              strokeDasharray="2 4"
-              dot={false}
-              activeDot={false}
-              legendType="none"
-            />
-          ))}
+          {/* Kurva WHO — hanya median untuk mode multi, full untuk single */}
+          {primaryIsMulti ? (
+            <>
+              <Line
+                data={curveData}
+                dataKey="m"
+                type="monotone"
+                stroke={C.m.stroke}
+                strokeWidth={2}
+                dot={false}
+                activeDot={false}
+                legendType="none"
+              />
+              {curveData2 && (
+                <Line
+                  data={curveData2}
+                  dataKey="m"
+                  type="monotone"
+                  stroke={C.m.stroke}
+                  strokeWidth={1}
+                  strokeOpacity={0.4}
+                  strokeDasharray="4 4"
+                  dot={false}
+                  activeDot={false}
+                  legendType="none"
+                />
+              )}
+            </>
+          ) : (
+            ['n3','n2','m','p2','p3'].map(key => (
+              <Line
+                key={key}
+                data={curveData}
+                dataKey={key}
+                type="monotone"
+                stroke={C[key].stroke}
+                strokeWidth={key === 'm' ? 2 : 1.5}
+                strokeDasharray={key === 'm' ? '' : C[key].dash}
+                dot={false}
+                activeDot={false}
+                legendType="none"
+              />
+            ))
+          )}
 
-          {/* Multi-balita: render each balita as a line */}
+          {/* Multi-balita: dots with thin connecting lines */}
           {primaryIsMulti && multiChartData.map(s => {
             const isActive = s.id === selectedId;
             return (
@@ -463,10 +483,10 @@ function KMSChart({ title, subtitle, whoData, whoData2, riwayat, field, unit, yD
                 dataKey="y"
                 type="monotone"
                 stroke={s.warna}
-                strokeWidth={isActive ? 2.5 : 1.2}
-                strokeOpacity={isActive ? 1 : 0.5}
-                dot={isActive}
-                activeDot={{ r: isActive ? 7 : 4 }}
+                strokeWidth={isActive ? 2.5 : 1}
+                strokeOpacity={isActive ? 1 : 0.45}
+                dot={{ r: isActive ? 5 : 3, fill: s.warna, stroke: '#fff', strokeWidth: isActive ? 1.5 : 0.5 }}
+                activeDot={{ r: 6, fill: s.warna, stroke: '#fff', strokeWidth: 2 }}
                 name={s.nama}
                 onClick={() => onSelectBalita?.(s.id)}
                 style={{ cursor: 'pointer' }}
@@ -503,11 +523,14 @@ function KMSChart({ title, subtitle, whoData, whoData2, riwayat, field, unit, yD
       {/* Legend */}
       <div className="legend-row">
         {[
-          { color: C.m.stroke, dash: false, label: 'Median (0 SD)' },
-          { color: C.n2.stroke, dash: true,  label: '±2 SD' },
-          { color: C.n3.stroke, dash: true,  label: '±3 SD' },
+          { color: C.m.stroke, dash: false, label: primaryIsMulti ? 'Median (gender ini)' : 'Median (0 SD)' },
+          ...(primaryIsMulti && whoData2 ? [{ color: C.m.stroke, dash: '2 4', label: 'Median (gender lain)' }] : []),
           ...(!primaryIsMulti
-            ? [{ color: C.dot, dash: false, dot: true, label: 'Data balita' }]
+            ? [
+                { color: C.n2.stroke, dash: true,  label: '±2 SD' },
+                { color: C.n3.stroke, dash: true,  label: '±3 SD' },
+                { color: C.dot, dash: false, dot: true, label: 'Data balita' },
+              ]
             : multiSeries.map(s => ({
                 color: s.warna,
                 dash: false,
@@ -530,7 +553,7 @@ function KMSChart({ title, subtitle, whoData, whoData2, riwayat, field, unit, yD
         ))}
       </div>
 
-      {/* Status zones info */}
+      {/* Status zones info - only for single balita mode */}
       {!primaryIsMulti && (
       <div className="status-bar">
         <div className="status-bar-title">Zona Interpretasi</div>
