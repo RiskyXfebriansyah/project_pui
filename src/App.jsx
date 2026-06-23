@@ -134,6 +134,8 @@ export default function App() {
         return (
           <GrafikKMSPage
             balita={selectedBalita}
+            balitaList={balita.semua}
+            onLoadRiwayat={balita.loadRiwayat}
             onBack={() => handleNav('dashboard')}
           />
         );
